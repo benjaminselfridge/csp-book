@@ -2,7 +2,8 @@ module CSPBook where
 
 import Control.Monad (foldM)
 import Data.Functor ((<&>))
-import Data.Maybe (isJust)
+import Data.List (transpose)
+import Data.Maybe (isJust, mapMaybe)
 
 -- * 1.1.1
 
@@ -171,3 +172,18 @@ ex1_1_4_2 =
         ( [1..] <&> \i ->
             \x -> choice [ U |> x !! (i+1), D |> x !! (i-1)] )
   in cts !! 0
+
+-- * 1.8
+
+-- | Fair n-way interleaving. Stole this from dmwit's universe package.
+interleave :: [[a]] -> [a]
+interleave = concat . transpose
+
+-- | Get all the traces of a process fairly.
+traces :: Process a -> [[a]]
+traces (P [] _) = [[]]
+traces (P pfxs f) = [[]] ++ interleave (g `mapMaybe` pfxs)
+
+  where g a = case f a of
+          Nothing -> Nothing
+          Just p -> Just ((a:) <$> traces p)
