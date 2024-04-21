@@ -1,3 +1,5 @@
+{-# LANGUAGE MultiWayIf #-}
+
 module CSPBook where
 
 import Control.Monad (foldM)
@@ -45,6 +47,9 @@ data Vend = Coin
           | SetLemon
           | Orange
           | Lemon
+          | Clink
+          | Clunk
+          | Curse
   deriving (Show, Eq)
 
 ex1_1_1_1 :: Process Vend
@@ -210,18 +215,22 @@ ap1 || ap2 =
   in AP (alph1' ++ alph2' ++ commonAlph) p
 
   where go alph1' alph2' commonAlph p1 p2 =
-          let pfxs = prefixes p1 `intersect` alph1' ++
-                     prefixes p2 `intersect` alph2' ++
-                     commonAlph `intersect` prefixes p1 `intersect` prefixes p2
+          let pfxs1' = prefixes p1 `intersect` alph1'
+              pfxs2' = prefixes p2 `intersect` alph2'
+              commonPfxs = commonAlph `intersect` prefixes p1 `intersect` prefixes p2
 
               P _ f1 = p1
               P _ f2 = p2
 
-              f a = if a `elem` pfxs
-                    then go alph1' alph2' commonAlph <$> f1 a <*> f2 a
-                    else Nothing
+              f a = if | a `elem` pfxs1' ->
+                         go alph1' alph2' commonAlph <$> f1 a <*> pure p2
+                       | a `elem` pfxs2' ->
+                         go alph1' alph2' commonAlph <$> pure p1 <*> f2 a
+                       | a `elem` commonPfxs ->
+                         go alph1' alph2' commonAlph <$> f1 a <*> f2 a
+                       | otherwise -> Nothing
 
-          in P pfxs f
+          in P (pfxs1' ++ pfxs2' ++ commonPfxs) f
 
 ex2_2_1 :: Process Vend
 ex2_2_1 = let AP _ p = AP [Toffee, Choc, Coin] grCust ||
@@ -255,3 +264,14 @@ ex2_2_2 = let AP _ p = AP [In1p, In2p, Large] foolCust ||
                                             ]
                            ]
           ]
+
+ex2_3_1 :: Process Vend
+ex2_3_1 = let AP _ p = noisyVM || cust
+          in p
+  where noisyVM = AP [Coin, Choc, Clink, Clunk, Toffee] $
+          μ $ \x -> Coin .> Clink .> Choc .> Clunk .> x
+        cust = AP [Coin, Choc, Curse, Toffee] $
+          μ $ \x -> Coin .> choice
+                    [ Toffee |> x
+                    , Curse |> Choc .> x
+                    ]
