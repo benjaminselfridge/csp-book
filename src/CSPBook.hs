@@ -29,20 +29,6 @@ infixr 1 .>
 (.>) :: Eq a => a -> Process a -> Process a
 a .> p = P [a] (\x -> if x == a then Just p else Nothing)
 
-applyProcess :: Eq a => Process a -> a -> Maybe (Process a)
-applyProcess (P _ f) a = f a
-
--- | Run a process
---
--- Given a list of symbols, run the process for those symbols. Returns @Nothing@
--- if the process is undefined for one of the symbols at any point.
-runProcess :: Eq a => Process a -> [a] -> Maybe (Process a)
-runProcess = foldM applyProcess
-
--- | Run a process and determine whether the run was valud
-validRun :: Eq a => Process a -> [a] -> Bool
-validRun p as = isJust (runProcess p as)
-
 data Vend = Coin
           | Choc
           | Toffee
@@ -187,3 +173,18 @@ traces (P pfxs f) = [[]] ++ interleave (g `mapMaybe` pfxs)
   where g a = case f a of
           Nothing -> Nothing
           Just p -> Just ((a:) <$> traces p)
+
+-- | Run a process on a single input to get (possibly) a new process
+applyProcess :: Eq a => Process a -> a -> Maybe (Process a)
+applyProcess (P _ f) a = f a
+
+-- | Run a process
+--
+-- Given a list of symbols, run the process for those symbols. Returns @Nothing@
+-- if the process is undefined for one of the symbols at any point.
+runProcess :: Eq a => Process a -> [a] -> Maybe (Process a)
+runProcess = foldM applyProcess
+
+-- | Run a process and determine whether the run was valid
+isTrace :: Eq a => Process a -> [a] -> Bool
+isTrace p as = isJust (runProcess p as)
