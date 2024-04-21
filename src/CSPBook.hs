@@ -2,8 +2,10 @@ module CSPBook where
 
 import Control.Monad (foldM)
 import Data.Functor ((<&>))
-import Data.List (transpose)
+import Data.List (transpose, union, intersect, (\\))
 import Data.Maybe (isJust, mapMaybe)
+
+import Prelude hiding ((||))
 
 -- * 1.1.1
 
@@ -188,3 +190,68 @@ runProcess = foldM applyProcess
 -- | Run a process and determine whether the run was valid
 isTrace :: Eq a => Process a -> [a] -> Bool
 isTrace p as = isJust (runProcess p as)
+
+-- * 2
+
+-- | Process tagged with its own alphabet.
+data AProcess a = AP [a] (Process a)
+
+(||) :: Eq a => AProcess a -> AProcess a -> AProcess a
+ap1 || ap2 =
+  let AP alph1 p1 = ap1
+      AP alph2 p2 = ap2
+
+      commonAlph = alph1 `intersect` alph2
+      alph1' = alph1 \\ alph2 -- p1's exclusive alphabet
+      alph2' = alph2 \\ alph1 -- p2's exclusive alphabet
+
+      p = go alph1' alph2' commonAlph p1 p2
+
+  in AP (alph1' ++ alph2' ++ commonAlph) p
+
+  where go alph1' alph2' commonAlph p1 p2 =
+          let pfxs = prefixes p1 `intersect` alph1' ++
+                     prefixes p2 `intersect` alph2' ++
+                     commonAlph `intersect` prefixes p1 `intersect` prefixes p2
+
+              P _ f1 = p1
+              P _ f2 = p2
+
+              f a = if a `elem` pfxs
+                    then go alph1' alph2' commonAlph <$> f1 a <*> f2 a
+                    else Nothing
+
+          in P pfxs f
+
+ex2_2_1 :: Process Vend
+ex2_2_1 = let AP _ p = AP [Toffee, Choc, Coin] grCust ||
+                       AP [Toffee, Choc, Coin] vmct
+          in p
+  where grCust = choice
+          [ Toffee |> grCust
+          , Choc |> grCust
+          , Coin |> Choc .> grCust
+          ]
+        vmct = Coin .> choice
+          [ Choc   |> vmct
+          , Toffee |> vmct
+          ]
+
+ex2_2_2 :: Process Vend
+ex2_2_2 = let AP _ p = AP [In1p, In2p, Large] foolCust ||
+                       AP [In1p, In2p, Large, Small, Out1p] vmc
+          in p
+  where foolCust = choice
+          [ In2p |> Large .> foolCust
+          , In1p |> Large .> foolCust
+          ]
+        vmc = choice
+          [ In2p |> choice [ Large |> vmc
+                           , Small |> Out1p .> vmc
+                           ]
+          , In1p |> choice [ Small|> vmc
+                           , In1p |> choice [ Large |> vmc
+                                            , In1p |> stop
+                                            ]
+                           ]
+          ]
