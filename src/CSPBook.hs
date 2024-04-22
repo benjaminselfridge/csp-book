@@ -201,6 +201,12 @@ isTrace p as = isJust (runProcess p as)
 -- | Process tagged with its own alphabet.
 data AProcess a = AP [a] (Process a)
 
+atraces :: AProcess a -> [[a]]
+atraces (AP _ p) = traces p
+
+aRunProcess :: Eq a => AProcess a -> [a] -> Maybe (Process a)
+aRunProcess (AP _ p) = runProcess p
+
 (||) :: Eq a => AProcess a -> AProcess a -> AProcess a
 ap1 || ap2 =
   let AP alph1 p1 = ap1
@@ -275,3 +281,56 @@ ex2_3_1 = let AP _ p = noisyVM || cust
                     [ Toffee |> x
                     , Curse |> Choc .> x
                     ]
+
+-- * 2.5 -- dining philosophers
+
+data Phil = SitsDown Int
+          | GetsUp Int
+          | PicksUpFork Int Int
+          | PutsDownFork Int Int
+  deriving (Show, Eq)
+
+alphaPhil :: Int -> [Phil]
+alphaPhil i = [ SitsDown i, GetsUp i
+              , PicksUpFork i i, PicksUpFork i ((i + 1) `mod` 5)
+              , PutsDownFork i i, PutsDownFork i ((i + 1) `mod` 5)
+              ]
+
+alphaFork :: Int -> [Phil]
+alphaFork i = [ PicksUpFork i i, PicksUpFork ((i - 1) `mod` 5) i
+              , PutsDownFork i i, PutsDownFork ((i - 1) `mod` 5) i
+              ]
+
+phil :: Int -> AProcess Phil
+phil i = AP (alphaPhil i) p
+  where p = SitsDown i .>
+            PicksUpFork i i .>
+            PicksUpFork i ((i + 1) `mod` 5) .>
+            PutsDownFork i i .>
+            PutsDownFork i ((i + 1) `mod` 5) .>
+            GetsUp i .>
+            p
+
+fork :: Int -> AProcess Phil
+fork i = AP (alphaFork i) p
+  where p = choice
+            [ PicksUpFork i i |> PutsDownFork i i .> p
+            , PicksUpFork ((i - 1) `mod` 5) i |> PutsDownFork ((i - 1) `mod` 5) i .> p
+            ]
+
+philos :: AProcess Phil
+philos = phil 0 || phil 1 || phil 2 || phil 3 || phil 4
+
+forks :: AProcess Phil
+forks = fork 0 || fork 1 || fork 2 || fork 3 || fork 4
+
+college :: AProcess Phil
+college = philos || forks
+
+philoDeadlock :: [Phil]
+philoDeadlock = map SitsDown [0..4] ++
+                map (\i -> PicksUpFork i i) [0..4]
+
+-- traces <$> aRunProcess college philoDeadlock
+--
+-- Just [[]]
