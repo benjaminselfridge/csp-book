@@ -1,4 +1,4 @@
-{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE MultiWayIf, LambdaCase #-}
 
 module CSPBook where
 
@@ -207,6 +207,9 @@ atraces (AP _ p) = traces p
 aRunProcess :: Eq a => AProcess a -> [a] -> Maybe (Process a)
 aRunProcess (AP _ p) = runProcess p
 
+aIsTrace :: Eq a => AProcess a -> [a] -> Bool
+aIsTrace (AP _ p) = isTrace p
+
 (||) :: Eq a => AProcess a -> AProcess a -> AProcess a
 ap1 || ap2 =
   let AP alph1 p1 = ap1
@@ -327,10 +330,28 @@ forks = fork 0 || fork 1 || fork 2 || fork 3 || fork 4
 college :: AProcess Phil
 college = philos || forks
 
-philoDeadlock :: [Phil]
+philoDeadlock :: [Phil] -- trace
 philoDeadlock = map SitsDown [0..4] ++
                 map (\i -> PicksUpFork i i) [0..4]
 
 -- traces <$> aRunProcess college philoDeadlock
 --
 -- Just [[]]
+
+alphaFootman :: [Phil]
+alphaFootman = [e | i <- [0..4], e <- [SitsDown i, GetsUp i]]
+
+footman :: AProcess Phil
+footman = AP alphaFootman (p 0)
+  where p 0 = P [SitsDown i | i <- [0..4]] $ \case
+          SitsDown _ -> Just (p 1)
+          _ -> Nothing
+        p 4 = P [GetsUp i | i <- [0..4]] $ \case
+          GetsUp _ -> Just (p 3)
+          _ -> Nothing
+        p i = P (alphaFootman) $ \case
+          SitsDown _ -> Just (p (i+1))
+          GetsUp _ -> Just (p (i-1))
+
+newCollege :: AProcess Phil
+newCollege = college || footman
