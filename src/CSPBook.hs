@@ -1,11 +1,10 @@
 {-# LANGUAGE MultiWayIf, LambdaCase #-}
-
 module CSPBook where
 
 import Control.Monad (foldM)
 import Data.Functor ((<&>))
 import Data.List (transpose, union, intersect, (\\))
-import Data.Maybe (isJust, mapMaybe)
+import Data.Maybe (isJust, mapMaybe, maybeToList)
 
 import Prelude hiding ((||))
 
@@ -15,15 +14,17 @@ import Prelude hiding ((||))
 --
 -- Note that the list field is just a list of valid prefixes; it is not actually
 -- used, except to recover those prefixes. Every valid process should return a
--- @Just@ value for exactly those elements in the prefix list, and @Nothing@ for
--- values not in the list. The list must be finite.
-data Process a = P [a] (a -> Maybe (Process a))
+-- nonempty, finite list of processes for exactly those elements in the prefix
+-- list, and @[]@ for values not in the list.
+--
+-- The prefix must be finite.
+data Process a = P [a] (a -> [Process a])
 
 prefixes :: Process a -> [a]
 prefixes (P pfxs _) = pfxs
 
 stop :: Process a
-stop = P [] (\x -> Nothing)
+stop = P [] (const [])
 
 -- | Prefix operator
 --
@@ -31,7 +32,7 @@ stop = P [] (\x -> Nothing)
 -- as another process.
 infixr 1 .>
 (.>) :: Eq a => a -> Process a -> Process a
-a .> p = P [a] (\x -> if x == a then Just p else Nothing)
+a .> p = P [a] (\x -> if x == a then [p] else [])
 
 data Vend = Coin
           | Choc
@@ -86,7 +87,7 @@ ex1_1_2_4 = μ $ \x -> In5p .> Out1p .> Out1p .> Out1p .> Out2p .> x
 -- * 1.3
 
 choice :: Eq a => [(a, Process a)] -> Process a
-choice cs = P (fst <$> cs) (flip lookup cs)
+choice cs = P (fst <$> cs) (maybeToList . flip lookup cs)
 
 infixr 1 |>
 (|>) :: a -> Process a -> (a, Process a)
@@ -168,33 +169,37 @@ ex1_1_4_2 =
 
 -- * 1.8
 
--- | Fair n-way interleaving. Stole this from dmwit's universe package.
+-- | Fair n-way interleaving, given a FINITE number of possibly infinite lists.
+-- i.e. the "outer" list must be finite for this to be fair.
+--
+-- Stole this from universe-base.
 interleave :: [[a]] -> [a]
 interleave = concat . transpose
 
 -- | Get all the traces of a process fairly.
+--
+-- TODO: Does this work?
 traces :: Process a -> [[a]]
 traces (P [] _) = [[]]
-traces (P pfxs f) = [[]] ++ interleave (g `mapMaybe` pfxs)
+traces (P pfxs f) = [[]] ++ interleave [ (a:) <$> traces p | a <- pfxs, p <- f a ]
 
-  where g a = case f a of
-          Nothing -> Nothing
-          Just p -> Just ((a:) <$> traces p)
+printTraces :: Show a => Int -> Process a -> IO ()
+printTraces n = mapM_ print . take 10 . traces
 
 -- | Run a process on a single input to get (possibly) a new process
-applyProcess :: Eq a => Process a -> a -> Maybe (Process a)
+applyProcess :: Eq a => Process a -> a -> [Process a]
 applyProcess (P _ f) a = f a
 
 -- | Run a process
 --
 -- Given a list of symbols, run the process for those symbols. Returns @Nothing@
 -- if the process is undefined for one of the symbols at any point.
-runProcess :: Eq a => Process a -> [a] -> Maybe (Process a)
+runProcess :: Eq a => Process a -> [a] -> [Process a]
 runProcess = foldM applyProcess
 
 -- | Run a process and determine whether the run was valid
 isTrace :: Eq a => Process a -> [a] -> Bool
-isTrace p as = isJust (runProcess p as)
+isTrace p as = not . null $ runProcess p as
 
 -- * 2
 
@@ -204,11 +209,14 @@ data AProcess a = AP [a] (Process a)
 atraces :: AProcess a -> [[a]]
 atraces (AP _ p) = traces p
 
-aRunProcess :: Eq a => AProcess a -> [a] -> Maybe (Process a)
+aRunProcess :: Eq a => AProcess a -> [a] -> [Process a]
 aRunProcess (AP _ p) = runProcess p
 
 aIsTrace :: Eq a => AProcess a -> [a] -> Bool
 aIsTrace (AP _ p) = isTrace p
+
+aPrintTraces :: Show a => Int -> AProcess a -> IO ()
+aPrintTraces n (AP _ p) = printTraces n p
 
 (||) :: Eq a => AProcess a -> AProcess a -> AProcess a
 ap1 || ap2 =
@@ -237,7 +245,7 @@ ap1 || ap2 =
                          go alph1' alph2' commonAlph <$> pure p1 <*> f2 a
                        | a `elem` commonPfxs ->
                          go alph1' alph2' commonAlph <$> f1 a <*> f2 a
-                       | otherwise -> Nothing
+                       | otherwise -> []
 
           in P (pfxs1' ++ pfxs2' ++ commonPfxs) f
 
@@ -336,7 +344,7 @@ philoDeadlock = map SitsDown [0..4] ++
 
 -- traces <$> aRunProcess college philoDeadlock
 --
--- Just [[]]
+-- [[]]
 
 alphaFootman :: [Phil]
 alphaFootman = [e | i <- [0..4], e <- [SitsDown i, GetsUp i]]
@@ -344,14 +352,14 @@ alphaFootman = [e | i <- [0..4], e <- [SitsDown i, GetsUp i]]
 footman :: AProcess Phil
 footman = AP alphaFootman (p 0)
   where p 0 = P [SitsDown i | i <- [0..4]] $ \case
-          SitsDown _ -> Just (p 1)
-          _ -> Nothing
+          SitsDown _ -> [p 1]
+          _ -> []
         p 4 = P [GetsUp i | i <- [0..4]] $ \case
-          GetsUp _ -> Just (p 3)
-          _ -> Nothing
+          GetsUp _ -> [p 3]
+          _ -> []
         p i = P (alphaFootman) $ \case
-          SitsDown _ -> Just (p (i+1))
-          GetsUp _ -> Just (p (i-1))
+          SitsDown _ -> [p (i+1)]
+          GetsUp _ -> [p (i-1)]
 
 newCollege :: AProcess Phil
 newCollege = college || footman
